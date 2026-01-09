@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Van Gogh: Starry Interaction Final</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        #container { width: 100vw; height: 100vh; background: radial-gradient(circle at center, #05081a 0%, #000000 100%); }
+        
+        #ui-layer {
+            position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+            z-index: 100; display: flex; flex-direction: column; align-items: center; gap: 15px;
+            pointer-events: none;
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        }
+        
+        .glass-panel {
+            background: rgba(10, 20, 30, 0.7); 
+            backdrop-filter: blur(10px);
+            padding: 15px 30px; 
+            border-radius: 50px; 
+            border: 1px solid rgba(80, 150, 255, 0.15);
+            pointer-events: auto; 
+            display: flex; gap: 20px; align-items: center;
+        }
+
+        button {
+            background: #fff; border: none; padding: 12px 28px; border-radius: 25px;
+            cursor: pointer; font-weight: 800; color: #000; transition: 0.2s;
+        }
+        button:hover { background: #d4af37; transform: scale(1.05); }
+
+        #status-text { font-weight: 600; color: #aaddff; letter-spacing: 1px; min-width: 200px; text-align: center; }
+
+        #webcam-preview {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 120px; height: 90px; border-radius: 12px;
+            border: 2px solid rgba(255,255,255,0.1); object-fit: cover;
+            transform: scaleX(-1); opacity: 0; transition: opacity 1s;
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+            "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm"
+        }
+    }
+    </script>
+</head>
+<body>
+
+    <video id="webcam-preview" autoplay playsinline></video>
+    <div id="container"></div>
+
+    <div id="ui-layer">
+        <div class="glass-panel">
+            <button onclick="document.getElementById('file-input').click()">🖼️ 更换图片</button>
+            <input type="file" id="file-input" accept="image/*" style="display: none;">
+            <div style="text-align:center;">
+                <div id="status-text">✨ 正在点亮星空...</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+
+        const IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg";
+
+        const CONFIG = {
+            particleCount: 160000, 
+            universeSize: 3000.0,  
+            baseSize: 3.8 
+        };
+
+        let scene, camera, renderer, controls, particleSystem, composer;
+        let handLandmarker, webcamRunning = false;
+        
+        let targetState = 0.0, currentState = 0.0;     
+        let targetTextState = 0.0, currentTextState = 0.0; 
+        
+        let isImageLoaded = false;
+
+        const uniforms = {
+            uTime: { value: 0 },
+            uState: { value: 0.0 },      
+            uStateText: { value: 0.0 },  
+            uTexture: { value: null }
+        };
+
+        const statusText = document.getElementById('status-text');
+
+        function initThree() {
+            const container = document.getElementById('container');
+            
+            renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ReinhardToneMapping;
+            renderer.toneMappingExposure = 0.9; 
+            container.appendChild(renderer.domElement);
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050815, 0.0002);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 10, 20000);
+            // 再次稍微拉远相机，以容纳扩大的光环
+            camera.position.set(0, 450, 1600); 
+            camera.lookAt(0, 0, 0);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.2; 
+            controls.maxDistance = 4000;
+
+            const renderScene = new RenderPass(scene, camera);
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.strength = 0.35;  
+            bloomPass.radius = 0.3;
+            bloomPass.threshold = 0.25; 
+
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            uniforms.uTexture.value = createSoftSprite();
+            
+            initParticles();
+            loadDefaultImage();
+
+            window.addEventListener('resize', onWindowResize);
+            document.getElementById('file-input').addEventListener('change', handleFileUpload);
+            
+            animate();
+        }
+
+        function createSoftSprite() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(32,32,0, 32,32,32);
+            grad.addColorStop(0, 'rgba(255,255,255,1)');
+            grad.addColorStop(0.2, 'rgba(255,255,255,0.8)'); 
+            grad.addColorStop(0.5, 'rgba(255,255,255,0.2)'); 
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0,0,64,64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function generateTextAndRingPoints(count) {
+            const posText = new Float32Array(count * 3);
+            
+            const canvas = document.createElement('canvas');
+            const w = 2048, h = 1024; 
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '900 350px "Segoe UI", Roboto, "Helvetica Neue", sans-serif'; 
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("Starry", w/2, h/2);
+
+            const imgData = ctx.getImageData(0, 0, w, h).data;
+            const validPixels = [];
+            for (let y = 0; y < h; y += 4) { 
+                for (let x = 0; x < w; x += 4) {
+                    const idx = (y * w + x) * 4;
+                    if (imgData[idx] > 128) {
+                        validPixels.push({
+                            // 文字保持目前的缩放比例，因为它足够大了
+                            x: (x - w/2) * 1.5, 
+                            y: (h/2 - y) * 1.5,
+                            z: 0
+                        });
+                    }
+                }
+            }
+
+            const textParticleCount = Math.floor(count * 0.45);
+
+            for (let i = 0; i < count; i++) {
+                if (i < textParticleCount && validPixels.length > 0) {
+                    const p = validPixels[i % validPixels.length];
+                    const isCore = Math.random() > 0.1; 
+                    const spreadXY = isCore ? 0.2 : 5.0; 
+                    const spreadZ = isCore ? 1.5 : 20.0; 
+
+                    posText[i*3] = p.x + (Math.random()-0.5) * spreadXY;
+                    posText[i*3+1] = p.y + (Math.random()-0.5) * spreadXY;
+                    posText[i*3+2] = p.z + (Math.random()-0.5) * spreadZ; 
+
+                } else {
+                    // --- 光环粒子 ---
+                    const angle = Math.random() * Math.PI * 2;
+                    let radius;
+                    const rType = Math.random();
+                    
+                    // [关键修改] 大幅增加所有环的半径，避开文字区域
+                    // 之前的内环是 650，现在推到 1000 起步
+                    // 之前的 Shader 判定阈值是 400，现在我们有足够的安全空间将阈值提升到 850
+                    
+                    if (rType < 0.5) {
+                        // 主环：1200 ~ 1300
+                        radius = 1250 + (Math.random() - 0.5) * 100; 
+                    } else if (rType < 0.8) {
+                        // 内环：950 ~ 1100 (确保大于 850)
+                        radius = 1000 + (Math.random() - 0.5) * 100;
+                    } else {
+                        // 外散环：1400 ~ 1700
+                        radius = 1550 + (Math.random() - 0.5) * 300;
+                    }
+                    
+                    posText[i*3] = Math.cos(angle) * radius; 
+                    posText[i*3+1] = (Math.random() - 0.5) * 20 + Math.sin(angle*4)*10; 
+                    posText[i*3+2] = Math.sin(angle) * radius; 
+                }
+            }
+            return posText;
+        }
+
+        function initParticles() {
+            const count = CONFIG.particleCount;
+            const geometry = new THREE.BufferGeometry();
+            
+            const posUniverse = new Float32Array(count * 3);
+            const posPainting = new Float32Array(count * 3);
+            const posText = generateTextAndRingPoints(count); 
+
+            const colors = new Float32Array(count * 3);       
+            const sizes = new Float32Array(count); 
+            const randoms = new Float32Array(count);           
+
+            const colorPalette = [
+                new THREE.Color(0x6699cc), new THREE.Color(0x99aabb), new THREE.Color(0x445566)
+            ];
+
+            for (let i = 0; i < count; i++) {
+                const r = CONFIG.universeSize;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const radius = Math.cbrt(Math.random()) * r; 
+                
+                posUniverse[i*3] = radius * Math.sin(phi) * Math.cos(theta);
+                posUniverse[i*3+1] = radius * Math.sin(phi) * Math.sin(theta);
+                posUniverse[i*3+2] = radius * Math.cos(phi);
+
+                posPainting[i*3] = 0; posPainting[i*3+1] = 0; posPainting[i*3+2] = 0;
+
+                const c = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+                
+                randoms[i] = Math.random();
+                sizes[i] = 1.0; 
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(posUniverse, 3));
+            geometry.setAttribute('aPosUniverse', new THREE.BufferAttribute(posUniverse, 3));
+            geometry.setAttribute('aPosPainting', new THREE.BufferAttribute(posPainting, 3));
+            geometry.setAttribute('aPosText', new THREE.BufferAttribute(posText, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 1));
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending, 
+                vertexShader: `
+                    uniform float uTime;
+                    uniform float uState;     
+                    uniform float uStateText; 
+                    
+                    attribute vec3 aPosUniverse;
+                    attribute vec3 aPosPainting;
+                    attribute vec3 aPosText;  
+                    attribute vec3 color;
+                    attribute float aRandom;
+                    attribute float aSize;
+                    
+                    varying vec3 vColor;
+                    varying float vAlpha;
+
+                    vec3 rotateY(vec3 v, float angle) {
+                        float s = sin(angle);
+                        float c = cos(angle);
+                        return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
+                    }
+
+                    void main() {
+                        vColor = color;
+                        
+                        vec3 uPos = aPosUniverse;
+                        uPos.x += sin(uTime * 0.1 + aRandom * 10.0) * 10.0;
+                        uPos.y += cos(uTime * 0.15 + aRandom * 20.0) * 10.0;
+
+                        vec3 pPos = aPosPainting;
+                        pPos.z *= 0.8; 
+
+                        vec3 tPos = aPosText;
+                        float horizontalDist = length(aPosText.xz);
+                        
+                        // [关键修改] 判定阈值从 400 提升到 850
+                        // 这样即使是最宽的字母边缘（约 x=750 处）也会被认定为文字，而不是光环
+                        bool isRing = horizontalDist > 850.0; 
+
+                        if (isRing) {
+                            float rotAngle = uTime * 0.1 + aRandom * 0.2;
+                            tPos = rotateY(tPos, rotAngle);
+                            tPos.y += sin(uTime * 0.4 + horizontalDist * 0.01) * 5.0;
+                        } else {
+                            tPos.y += sin(uTime * 1.0 + aRandom * 5.0) * 1.5; 
+                        }
+
+                        vec3 mix1 = mix(uPos, pPos, uState);
+                        vec3 finalPos = mix(mix1, tPos, uStateText);
+
+                        vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
+                        gl_Position = projectionMatrix * mvPosition;
+
+                        float distScale = (800.0 / -mvPosition.z);
+                        float twinkle = 0.8 + 0.3 * sin(uTime * 2.5 + aRandom * 100.0);
+                        
+                        float finalSize = ${CONFIG.baseSize.toFixed(1)} * aSize * twinkle;
+                        finalSize = mix(finalSize, finalSize * 1.3, uState); 
+                        finalSize = mix(finalSize, finalSize * 0.7, uStateText);
+
+                        gl_PointSize = finalSize * distScale;
+                        
+                        float alphaBase = mix(0.9, 0.75, uState);
+                        vAlpha = mix(alphaBase, 1.0, uStateText); 
+                        
+                        if (uStateText > 0.1) {
+                            vec3 goldColor = vec3(0.9, 0.8, 0.6); 
+                            vec3 ringColor = vec3(0.7, 0.8, 0.9);
+                            vec3 targetColor = isRing ? ringColor : goldColor;
+                            vColor = mix(vColor, targetColor, uStateText * 0.9);
+                        }
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+                    varying float vAlpha;
+                    uniform sampler2D uTexture;
+                    
+                    void main() {
+                        vec4 tex = texture2D(uTexture, gl_PointCoord);
+                        if (tex.a < 0.05) discard;
+                        vec3 finalColor = vColor; 
+                        gl_FragColor = vec4(finalColor, tex.a * vAlpha);
+                    }
+                `
+            });
+
+            particleSystem = new THREE.Points(geometry, material);
+            scene.add(particleSystem);
+        }
+
+        function updatePaintingData(img) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const total = CONFIG.particleCount;
+            const ratio = img.width / img.height;
+            const w = Math.floor(Math.sqrt(total * ratio));
+            const h = Math.floor(total / w);
+            canvas.width = w; canvas.height = h;
+            ctx.drawImage(img, 0, 0, w, h);
+            let data;
+            try { data = ctx.getImageData(0, 0, w, h).data; } catch (e) { console.error("CORS limit", e); return; }
+            const attrPainting = particleSystem.geometry.attributes.aPosPainting;
+            const attrColor = particleSystem.geometry.attributes.color;
+            const attrSize = particleSystem.geometry.attributes.aSize;
+            let idx = 0;
+            for(let y=0; y<h; y++) {
+                for(let x=0; x<w; x++) {
+                    if(idx >= total) break;
+                    const i = (y * w + x) * 4;
+                    let r = data[i]/255, g = data[i+1]/255, b = data[i+2]/255;
+                    const brightness = 0.299*r + 0.587*g + 0.114*b;
+                    const jitterAmt = 2.0; 
+                    const px = (x - w/2) * 2.5 + (Math.random() - 0.5) * jitterAmt; 
+                    const py = (h/2 - y) * 2.5 + (Math.random() - 0.5) * jitterAmt; 
+                    const pz = brightness * 35.0; 
+                    attrPainting.setXYZ(idx, px, py, pz);
+                    attrColor.setXYZ(idx, r, g, b);
+                    attrSize.setX(idx, 0.35 + brightness * 1.5);
+                    idx++;
+                }
+            }
+            attrPainting.needsUpdate = true; attrColor.needsUpdate = true; attrSize.needsUpdate = true;
+        }
+
+        function loadDefaultImage() {
+            const img = new Image(); img.crossOrigin = "Anonymous";
+            img.onload = () => { updatePaintingData(img); statusText.innerText = "✨ 漫天星海 (张手)"; isImageLoaded = true; };
+            img.src = IMAGE_URL;
+        }
+        function handleFileUpload(e) {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => { const img = new Image(); img.onload = () => { updatePaintingData(img); statusText.innerText = "✨ 画作已加载"; isImageLoaded = true; }; img.src = event.target.result; };
+            reader.readAsDataURL(file);
+        }
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
+        }
+        async function initVision() {
+            try {
+                const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+                handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                    baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`, delegate: "GPU" },
+                    runningMode: "VIDEO", numHands: 1
+                });
+                startWebcam();
+            } catch(e) { console.log(e); }
+        }
+        function startWebcam() {
+            navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+                const v = document.getElementById('webcam-preview'); v.srcObject = stream;
+                v.addEventListener("loadeddata", () => { webcamRunning = true; v.style.opacity = 1; });
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (webcamRunning && handLandmarker && isImageLoaded) {
+                const v = document.getElementById('webcam-preview');
+                if(v.currentTime > 0) {
+                    let results = handLandmarker.detectForVideo(v, Date.now());
+                    if (results.landmarks.length > 0) {
+                        const lm = results.landmarks[0]; const wrist = lm[0];
+                        const tips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
+                        let dTotal = 0; tips.forEach(p => dTotal += Math.hypot(p.x-wrist.x, p.y-wrist.y));
+                        const avg = dTotal / 5;
+                        const dIndex = Math.hypot(lm[8].x - wrist.x, lm[8].y - wrist.y);
+                        const dMiddle = Math.hypot(lm[12].x - wrist.x, lm[12].y - wrist.y);
+                        const dRing = Math.hypot(lm[16].x - wrist.x, lm[16].y - wrist.y);
+                        const dPinky = Math.hypot(lm[20].x - wrist.x, lm[20].y - wrist.y);
+                        
+                        const isVictory = (dIndex > 0.25 && dMiddle > 0.25) && (dRing < 0.23 && dPinky < 0.23);
+
+                        if (isVictory) {
+                            targetTextState = 1.0; statusText.innerText = "✌️ 召唤星空 (剪刀手)"; statusText.style.color = "#ffffff";
+                        } else {
+                            targetTextState = 0.0;
+                            if (avg < 0.2) { targetState = 1.0; statusText.innerText = "🎨 聚合画作 (握拳)"; statusText.style.color = "#ffd700"; } 
+                            else if (avg > 0.3) { targetState = 0.0; statusText.innerText = "✨ 漫天星海 (张手)"; statusText.style.color = "#aaddff"; }
+                        }
+                    } else {
+                        targetTextState = 0.0; targetState = 0.0; statusText.innerText = "✨ 等待手势..."; statusText.style.color = "#aaa";
+                    }
+                }
+            }
+            currentState += (targetState - currentState) * 0.03;
+            currentTextState += (targetTextState - currentTextState) * 0.03;
+            uniforms.uState.value = currentState; uniforms.uStateText.value = currentTextState;
+            uniforms.uTime.value += 0.01;
+            controls.update(); composer.render();
+        }
+
+        initThree(); initVision();
+    </script>
+</body>
+</html>
