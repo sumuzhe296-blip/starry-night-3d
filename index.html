@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Van Gogh: Ultimate Interaction (GitHub Local)</title>
+    <title>Van Gogh: Ultimate Interaction (Calm Heart)</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; }
         /* 深空背景 */
@@ -77,11 +77,10 @@
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
-        // ✅ 核心修改：使用相对路径，加载你上传到 GitHub 的图片
-        // 请确保你上传的图片名字叫 starry.jpg，且都在根目录下
-        const IMAGE_URL = "./starry.jpg";
+        // 维基百科在线图片 (如果加载慢，请换成本地图片 "./starry.jpg")
+        const IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg";
         
-        // 真实光斑贴图 (这个文件很小且稳定，用在线的没问题，也可以下载下来改成 ./spark1.png)
+        // 真实光斑贴图
         const SPRITE_URL = "https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/spark1.png";
 
         const CONFIG = {
@@ -93,7 +92,6 @@
         let scene, camera, renderer, controls, particleSystem, composer;
         let handLandmarker, webcamRunning = false;
         
-        // 状态变量
         let targetState = 0.0, currentState = 0.0;             
         let targetTextState = 0.0, currentTextState = 0.0;     
         let targetHeartState = 0.0, currentHeartState = 0.0;   
@@ -143,7 +141,6 @@
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // 加载光斑贴图
             new THREE.TextureLoader().load(SPRITE_URL, (texture) => {
                 uniforms.uTexture.value = texture;
                 initParticles();
@@ -244,7 +241,6 @@
             ];
 
             for (let i = 0; i < count; i++) {
-                // 宇宙：随机球体分布
                 const r = CONFIG.universeSize;
                 const theta = Math.random() * Math.PI * 2;
                 const phi = Math.acos(2 * Math.random() - 1);
@@ -327,9 +323,9 @@
                             tPos.y += sin(uTime * 0.8 + aRandom * 3.0) * 2.0; 
                         }
 
-                        // 爱心快速跳动 (15.0 frequency)
+                        // --- Heartbeat Logic (调整为 7.0，更舒缓) ---
                         vec3 hPos = aPosHeart;
-                        float beat = 1.0 + 0.15 * pow(0.5 + 0.5 * sin(uTime * 15.0), 8.0);
+                        float beat = 1.0 + 0.15 * pow(0.5 + 0.5 * sin(uTime * 7.0), 8.0);
                         hPos *= beat; 
                         hPos.y += sin(uTime + aRandom) * 5.0; 
 
@@ -355,7 +351,7 @@
                         float baseAlpha = 0.6 + aRandom * 0.4;
                         float alphaState = mix(baseAlpha, 0.8, uState);
                         alphaState = mix(alphaState, 0.95, uStateText);
-                        alphaState = mix(alphaState, 0.65, uStateHeart); // 爱心防过曝
+                        alphaState = mix(alphaState, 0.65, uStateHeart); // 防过曝
                         
                         vAlpha = alphaState * distFade; 
                         
@@ -439,12 +435,11 @@
                 isImageLoaded = true;
             };
 
-            // ✅ 错误处理：如果本地图片也没找到
             img.onerror = (e) => {
                 console.error("图片加载失败:", e);
                 statusText.innerText = "⚠️ 图片加载失败！";
                 statusText.style.color = "#ff4444";
-                alert("画作加载失败！\n请确保 GitHub 仓库中已经上传了 'starry.jpg' 文件。");
+                alert("画作加载失败！\n可能是网络问题导致无法下载维基百科的图片。");
             };
 
             img.src = IMAGE_URL;
