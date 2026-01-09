@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Van Gogh: Starry Interaction Final</title>
+    <title>Van Gogh: Starry Interaction Colorful</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; }
-        #container { width: 100vw; height: 100vh; background: radial-gradient(circle at center, #05081a 0%, #000000 100%); }
+        #container { width: 100vw; height: 100vh; background: radial-gradient(circle at center, #02040a 0%, #000000 100%); }
         
         #ui-layer {
             position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
@@ -28,6 +28,7 @@
         button {
             background: #fff; border: none; padding: 12px 28px; border-radius: 25px;
             cursor: pointer; font-weight: 800; color: #000; transition: 0.2s;
+            display: flex; align-items: center; gap: 8px;
         }
         button:hover { background: #d4af37; transform: scale(1.05); }
 
@@ -58,6 +59,7 @@
 
     <div id="ui-layer">
         <div class="glass-panel">
+            <button id="btn-reset">🔄 恢复星空</button>
             <button onclick="document.getElementById('file-input').click()">🖼️ 更换图片</button>
             <input type="file" id="file-input" accept="image/*" style="display: none;">
             <div style="text-align:center;">
@@ -75,11 +77,12 @@
         import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
         const IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg";
+        const SPRITE_URL = "https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/spark1.png";
 
         const CONFIG = {
             particleCount: 160000, 
             universeSize: 3000.0,  
-            baseSize: 3.8 
+            baseSize: 5.5 
         };
 
         let scene, camera, renderer, controls, particleSystem, composer;
@@ -88,12 +91,16 @@
         let targetState = 0.0, currentState = 0.0;     
         let targetTextState = 0.0, currentTextState = 0.0; 
         
+        // 新增：彩虹状态变量
+        let targetRainbowState = 0.0, currentRainbowState = 0.0;
+
         let isImageLoaded = false;
 
         const uniforms = {
             uTime: { value: 0 },
             uState: { value: 0.0 },      
-            uStateText: { value: 0.0 },  
+            uStateText: { value: 0.0 },
+            uRainbow: { value: 0.0 }, // 新增：控制彩虹程度
             uTexture: { value: null }
         };
 
@@ -102,18 +109,17 @@
         function initThree() {
             const container = document.getElementById('container');
             
-            renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+            renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", stencil: false, depth: false });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.toneMapping = THREE.ReinhardToneMapping;
-            renderer.toneMappingExposure = 0.9; 
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0; 
             container.appendChild(renderer.domElement);
 
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x050815, 0.0002);
+            scene.fog = new THREE.FogExp2(0x02040a, 0.0003);
 
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 10, 20000);
-            // 再次稍微拉远相机，以容纳扩大的光环
             camera.position.set(0, 450, 1600); 
             camera.lookAt(0, 0, 0);
 
@@ -121,41 +127,29 @@
             controls.enableDamping = true;
             controls.autoRotate = true;
             controls.autoRotateSpeed = 0.2; 
-            controls.maxDistance = 4000;
+            controls.maxDistance = 5000;
 
             const renderScene = new RenderPass(scene, camera);
             const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-            bloomPass.strength = 0.35;  
-            bloomPass.radius = 0.3;
-            bloomPass.threshold = 0.25; 
+            bloomPass.strength = 0.45;  
+            bloomPass.radius = 0.5;
+            bloomPass.threshold = 0.15; 
 
             composer = new EffectComposer(renderer);
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            uniforms.uTexture.value = createSoftSprite();
-            
-            initParticles();
-            loadDefaultImage();
+            new THREE.TextureLoader().load(SPRITE_URL, (texture) => {
+                uniforms.uTexture.value = texture;
+                initParticles();
+                loadDefaultImage();
+            });
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('file-input').addEventListener('change', handleFileUpload);
+            document.getElementById('btn-reset').addEventListener('click', loadDefaultImage);
             
             animate();
-        }
-
-        function createSoftSprite() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 64; canvas.height = 64;
-            const ctx = canvas.getContext('2d');
-            const grad = ctx.createRadialGradient(32,32,0, 32,32,32);
-            grad.addColorStop(0, 'rgba(255,255,255,1)');
-            grad.addColorStop(0.2, 'rgba(255,255,255,0.8)'); 
-            grad.addColorStop(0.5, 'rgba(255,255,255,0.2)'); 
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0,0,64,64);
-            return new THREE.CanvasTexture(canvas);
         }
 
         function generateTextAndRingPoints(count) {
@@ -180,7 +174,6 @@
                     const idx = (y * w + x) * 4;
                     if (imgData[idx] > 128) {
                         validPixels.push({
-                            // 文字保持目前的缩放比例，因为它足够大了
                             x: (x - w/2) * 1.5, 
                             y: (h/2 - y) * 1.5,
                             z: 0
@@ -194,37 +187,26 @@
             for (let i = 0; i < count; i++) {
                 if (i < textParticleCount && validPixels.length > 0) {
                     const p = validPixels[i % validPixels.length];
-                    const isCore = Math.random() > 0.1; 
-                    const spreadXY = isCore ? 0.2 : 5.0; 
-                    const spreadZ = isCore ? 1.5 : 20.0; 
+                    const isCore = Math.random() > 0.15; 
+                    const spreadXY = isCore ? 0.5 : 6.0; 
+                    const spreadZ = isCore ? 2.0 : 25.0; 
 
                     posText[i*3] = p.x + (Math.random()-0.5) * spreadXY;
                     posText[i*3+1] = p.y + (Math.random()-0.5) * spreadXY;
                     posText[i*3+2] = p.z + (Math.random()-0.5) * spreadZ; 
-
                 } else {
-                    // --- 光环粒子 ---
                     const angle = Math.random() * Math.PI * 2;
                     let radius;
                     const rType = Math.random();
-                    
-                    // [关键修改] 大幅增加所有环的半径，避开文字区域
-                    // 之前的内环是 650，现在推到 1000 起步
-                    // 之前的 Shader 判定阈值是 400，现在我们有足够的安全空间将阈值提升到 850
-                    
                     if (rType < 0.5) {
-                        // 主环：1200 ~ 1300
                         radius = 1250 + (Math.random() - 0.5) * 100; 
                     } else if (rType < 0.8) {
-                        // 内环：950 ~ 1100 (确保大于 850)
-                        radius = 1000 + (Math.random() - 0.5) * 100;
+                        radius = 1000 + (Math.random() - 0.5) * 100; 
                     } else {
-                        // 外散环：1400 ~ 1700
-                        radius = 1550 + (Math.random() - 0.5) * 300;
+                        radius = 1550 + (Math.random() - 0.5) * 300; 
                     }
-                    
                     posText[i*3] = Math.cos(angle) * radius; 
-                    posText[i*3+1] = (Math.random() - 0.5) * 20 + Math.sin(angle*4)*10; 
+                    posText[i*3+1] = (Math.random() - 0.5) * 30 + Math.sin(angle*4)*15; 
                     posText[i*3+2] = Math.sin(angle) * radius; 
                 }
             }
@@ -244,7 +226,7 @@
             const randoms = new Float32Array(count);           
 
             const colorPalette = [
-                new THREE.Color(0x6699cc), new THREE.Color(0x99aabb), new THREE.Color(0x445566)
+                new THREE.Color(0xaabfff), new THREE.Color(0x8899aa), new THREE.Color(0xffffff), new THREE.Color(0x445577)
             ];
 
             for (let i = 0; i < count; i++) {
@@ -263,7 +245,7 @@
                 colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
                 
                 randoms[i] = Math.random();
-                sizes[i] = 1.0; 
+                sizes[i] = 0.5 + Math.random() * 1.5; 
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(posUniverse, 3));
@@ -283,6 +265,7 @@
                     uniform float uTime;
                     uniform float uState;     
                     uniform float uStateText; 
+                    uniform float uRainbow; // 彩虹因子
                     
                     attribute vec3 aPosUniverse;
                     attribute vec3 aPosPainting;
@@ -300,29 +283,32 @@
                         return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
                     }
 
+                    // 颜色生成函数 (Cosine Palette)
+                    vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d ) {
+                        return a + b*cos( 6.28318*(c*t+d) );
+                    }
+
                     void main() {
                         vColor = color;
                         
                         vec3 uPos = aPosUniverse;
-                        uPos.x += sin(uTime * 0.1 + aRandom * 10.0) * 10.0;
-                        uPos.y += cos(uTime * 0.15 + aRandom * 20.0) * 10.0;
-
+                        float timeScale = uTime * 0.1;
+                        uPos.x += sin(timeScale + aRandom * 6.28) * (10.0 + aRandom * 10.0);
+                        uPos.y += cos(timeScale * 1.5 + aRandom * 6.28) * (10.0 + aRandom * 10.0);
+                        
                         vec3 pPos = aPosPainting;
                         pPos.z *= 0.8; 
 
                         vec3 tPos = aPosText;
                         float horizontalDist = length(aPosText.xz);
-                        
-                        // [关键修改] 判定阈值从 400 提升到 850
-                        // 这样即使是最宽的字母边缘（约 x=750 处）也会被认定为文字，而不是光环
                         bool isRing = horizontalDist > 850.0; 
 
                         if (isRing) {
-                            float rotAngle = uTime * 0.1 + aRandom * 0.2;
+                            float rotAngle = uTime * 0.08 + aRandom * 0.1; 
                             tPos = rotateY(tPos, rotAngle);
-                            tPos.y += sin(uTime * 0.4 + horizontalDist * 0.01) * 5.0;
+                            tPos.y += sin(uTime * 0.3 + horizontalDist * 0.005) * 8.0; 
                         } else {
-                            tPos.y += sin(uTime * 1.0 + aRandom * 5.0) * 1.5; 
+                            tPos.y += sin(uTime * 0.8 + aRandom * 3.0) * 2.0; 
                         }
 
                         vec3 mix1 = mix(uPos, pPos, uState);
@@ -331,23 +317,49 @@
                         vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
                         gl_Position = projectionMatrix * mvPosition;
 
-                        float distScale = (800.0 / -mvPosition.z);
-                        float twinkle = 0.8 + 0.3 * sin(uTime * 2.5 + aRandom * 100.0);
+                        float distanceToCamera = -mvPosition.z;
+                        float distFade = smoothstep(5000.0, 200.0, distanceToCamera);
+                        float distScale = (1000.0 / distanceToCamera); 
+                        float twinkle = 0.7 + 0.4 * sin(uTime * (2.0 + aRandom) + aRandom * 100.0);
                         
-                        float finalSize = ${CONFIG.baseSize.toFixed(1)} * aSize * twinkle;
-                        finalSize = mix(finalSize, finalSize * 1.3, uState); 
-                        finalSize = mix(finalSize, finalSize * 0.7, uStateText);
+                        float finalSize = ${CONFIG.baseSize.toFixed(1)} * aSize * twinkle * distScale;
+                        finalSize = mix(finalSize, finalSize * 1.2, uState); 
+                        finalSize = mix(finalSize, finalSize * 0.6, uStateText); 
 
-                        gl_PointSize = finalSize * distScale;
+                        gl_PointSize = max(0.0, finalSize); 
                         
-                        float alphaBase = mix(0.9, 0.75, uState);
-                        vAlpha = mix(alphaBase, 1.0, uStateText); 
+                        float baseAlpha = 0.6 + aRandom * 0.4;
+                        float alphaState = mix(baseAlpha, 0.8, uState);
+                        alphaState = mix(alphaState, 0.95, uStateText);
                         
+                        vAlpha = alphaState * distFade; 
+                        
+                        // --- 颜色混合逻辑 ---
                         if (uStateText > 0.1) {
-                            vec3 goldColor = vec3(0.9, 0.8, 0.6); 
-                            vec3 ringColor = vec3(0.7, 0.8, 0.9);
+                            vec3 goldColor = vec3(1.0, 0.9, 0.7); 
+                            vec3 ringColor = vec3(0.8, 0.9, 1.0);
+                            
+                            // 默认目标颜色 (金色/冷白)
                             vec3 targetColor = isRing ? ringColor : goldColor;
-                            vColor = mix(vColor, targetColor, uStateText * 0.9);
+
+                            // 如果开启了彩虹模式 (uRainbow > 0)
+                            if (uRainbow > 0.01) {
+                                // 根据位置和时间生成彩虹色
+                                // 使用 finalPos.x 和 finalPos.y 来决定色相
+                                float hue = uTime * 0.2 + length(finalPos.xy) * 0.001;
+                                
+                                // 一个鲜艳的彩虹色板
+                                vec3 rainbow = palette(hue, 
+                                    vec3(0.5, 0.5, 0.5), 
+                                    vec3(0.5, 0.5, 0.5), 
+                                    vec3(1.0, 1.0, 1.0), 
+                                    vec3(0.263, 0.416, 0.557)
+                                );
+                                // 混合原来的颜色和彩虹色
+                                targetColor = mix(targetColor, rainbow, uRainbow);
+                            }
+
+                            vColor = mix(vColor, targetColor, uStateText * 0.85);
                         }
                     }
                 `,
@@ -358,9 +370,11 @@
                     
                     void main() {
                         vec4 tex = texture2D(uTexture, gl_PointCoord);
-                        if (tex.a < 0.05) discard;
-                        vec3 finalColor = vColor; 
-                        gl_FragColor = vec4(finalColor, tex.a * vAlpha);
+                        float brightness = tex.a;
+                        if (brightness < 0.02) discard;
+
+                        vec3 finalColor = vColor * (1.0 + brightness * 0.5);
+                        gl_FragColor = vec4(finalColor, brightness * vAlpha);
                     }
                 `
             });
@@ -390,13 +404,13 @@
                     const i = (y * w + x) * 4;
                     let r = data[i]/255, g = data[i+1]/255, b = data[i+2]/255;
                     const brightness = 0.299*r + 0.587*g + 0.114*b;
-                    const jitterAmt = 2.0; 
+                    const jitterAmt = 3.0; 
                     const px = (x - w/2) * 2.5 + (Math.random() - 0.5) * jitterAmt; 
                     const py = (h/2 - y) * 2.5 + (Math.random() - 0.5) * jitterAmt; 
-                    const pz = brightness * 35.0; 
+                    const pz = brightness * 40.0 + (Math.random() - 0.5) * 5.0; 
                     attrPainting.setXYZ(idx, px, py, pz);
                     attrColor.setXYZ(idx, r, g, b);
-                    attrSize.setX(idx, 0.35 + brightness * 1.5);
+                    attrSize.setX(idx, 0.4 + brightness * 1.8 + Math.random() * 0.3);
                     idx++;
                 }
             }
@@ -446,29 +460,62 @@
                         const tips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
                         let dTotal = 0; tips.forEach(p => dTotal += Math.hypot(p.x-wrist.x, p.y-wrist.y));
                         const avg = dTotal / 5;
+                        
+                        // 手指距离检测
                         const dIndex = Math.hypot(lm[8].x - wrist.x, lm[8].y - wrist.y);
                         const dMiddle = Math.hypot(lm[12].x - wrist.x, lm[12].y - wrist.y);
                         const dRing = Math.hypot(lm[16].x - wrist.x, lm[16].y - wrist.y);
                         const dPinky = Math.hypot(lm[20].x - wrist.x, lm[20].y - wrist.y);
                         
+                        // 手势 1: 剪刀手 (Victory) -> 金色文字
                         const isVictory = (dIndex > 0.25 && dMiddle > 0.25) && (dRing < 0.23 && dPinky < 0.23);
 
+                        // 手势 2: OK手势 (OK Sign) -> 彩色文字
+                        // 拇指(4)和食指(8)指尖距离极近
+                        const dThumbIndex = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+                        // 中指、无名指、小指伸直
+                        const isOtherFingersOpen = (dMiddle > 0.25 && dRing > 0.25 && dPinky > 0.25);
+                        const isOK = dThumbIndex < 0.08 && isOtherFingersOpen;
+
                         if (isVictory) {
-                            targetTextState = 1.0; statusText.innerText = "✌️ 召唤星空 (剪刀手)"; statusText.style.color = "#ffffff";
+                            targetTextState = 1.0; 
+                            targetRainbowState = 0.0; // 金色
+                            statusText.innerText = "✌️ 召唤星空 (剪刀手)"; 
+                            statusText.style.color = "#ffffff";
+                        } else if (isOK) {
+                            targetTextState = 1.0; 
+                            targetRainbowState = 1.0; // 彩色
+                            statusText.innerText = "👌 缤纷星空 (OK手势)"; 
+                            statusText.style.color = "#ff88cc";
                         } else {
                             targetTextState = 0.0;
-                            if (avg < 0.2) { targetState = 1.0; statusText.innerText = "🎨 聚合画作 (握拳)"; statusText.style.color = "#ffd700"; } 
-                            else if (avg > 0.3) { targetState = 0.0; statusText.innerText = "✨ 漫天星海 (张手)"; statusText.style.color = "#aaddff"; }
+                            targetRainbowState = 0.0;
+                            if (avg < 0.2) { 
+                                targetState = 1.0; 
+                                statusText.innerText = "🎨 聚合画作 (握拳)"; 
+                                statusText.style.color = "#ffd700"; 
+                            } 
+                            else if (avg > 0.3) { 
+                                targetState = 0.0; 
+                                statusText.innerText = "✨ 漫天星海 (张手)"; 
+                                statusText.style.color = "#aaddff"; 
+                            }
                         }
                     } else {
                         targetTextState = 0.0; targetState = 0.0; statusText.innerText = "✨ 等待手势..."; statusText.style.color = "#aaa";
                     }
                 }
             }
+            // 缓动更新
             currentState += (targetState - currentState) * 0.03;
             currentTextState += (targetTextState - currentTextState) * 0.03;
-            uniforms.uState.value = currentState; uniforms.uStateText.value = currentTextState;
+            currentRainbowState += (targetRainbowState - currentRainbowState) * 0.03;
+
+            uniforms.uState.value = currentState; 
+            uniforms.uStateText.value = currentTextState;
+            uniforms.uRainbow.value = currentRainbowState; // 更新 Shader
             uniforms.uTime.value += 0.01;
+            
             controls.update(); composer.render();
         }
 
