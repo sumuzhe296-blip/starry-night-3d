@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Van Gogh: Independent Ring Rotation</title>
+    <title>Van Gogh: Digital Hand Interface</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; }
         #container { width: 100vw; height: 100vh; background: radial-gradient(circle at center, #02040a 0%, #000000 100%); }
@@ -29,17 +29,56 @@
             background: #fff; border: none; padding: 12px 28px; border-radius: 25px;
             cursor: pointer; font-weight: 800; color: #000; transition: 0.2s;
             display: flex; align-items: center; gap: 8px;
+            font-size: 14px;
         }
         button:hover { background: #d4af37; transform: scale(1.05); }
 
         #status-text { font-weight: 600; color: #aaddff; letter-spacing: 1px; min-width: 340px; text-align: center; }
 
+        /* --- 摄像头预览区样式调整 --- */
+        /* 原始视频流：隐藏但保留功能 */
         #webcam-preview {
-            position: absolute; bottom: 20px; right: 20px;
-            width: 160px; height: 120px; border-radius: 12px;
-            border: 2px solid rgba(255,255,255,0.1); object-fit: cover;
-            transform: scaleX(-1); opacity: 0; transition: opacity 1s;
+            display: none; 
         }
+
+        /* 输出画布：显示黑底线条手势 */
+        #output-canvas {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 160px; height: 120px; 
+            border-radius: 12px;
+            border: 2px solid rgba(255,255,255,0.15); 
+            background-color: #000;
+            transform: scaleX(-1); /* 镜像翻转 */
+            opacity: 0; transition: opacity 1s;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        /* --- 指南弹窗样式 --- */
+        #help-modal {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            z-index: 200;
+            display: none;
+            justify-content: center; align-items: center;
+            opacity: 0; transition: opacity 0.3s;
+        }
+        #help-content {
+            background: rgba(20, 30, 45, 0.9);
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px; width: 90%;
+            color: #fff;
+            font-family: 'Segoe UI', sans-serif;
+            box-shadow: 0 0 50px rgba(0, 100, 255, 0.2);
+            transform: scale(0.9); transition: transform 0.3s;
+        }
+        #help-content h2 { margin-top: 0; color: #ffd700; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; }
+        .gesture-item { display: flex; align-items: center; margin-bottom: 15px; font-size: 16px; }
+        .gesture-icon { font-size: 28px; width: 50px; text-align: center; margin-right: 15px; }
+        .gesture-desc { flex: 1; color: #ccc; line-height: 1.5; }
+        .gesture-desc strong { color: #fff; margin-right: 5px; }
     </style>
 
     <script type="importmap">
@@ -55,15 +94,33 @@
 <body>
 
     <video id="webcam-preview" autoplay playsinline></video>
+    <canvas id="output-canvas" width="320" height="240"></canvas>
+
     <div id="container"></div>
 
     <div id="ui-layer">
         <div class="glass-panel">
+            <button onclick="toggleHelp()">📖 手势指南</button>
             <button id="btn-reset">🔄 恢复星空</button>
             <button onclick="document.getElementById('file-input').click()">🖼️ 更换图片</button>
             <input type="file" id="file-input" accept="image/*" style="display: none;">
             <div style="text-align:center;">
                 <div id="status-text">✨ 正在初始化...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="help-modal" onclick="toggleHelp()">
+        <div id="help-content" onclick="event.stopPropagation()">
+            <h2>✨ 交互手势指南</h2>
+            <div class="gesture-item"><div class="gesture-icon">👋</div><div class="gesture-desc"><strong>双手操作：</strong> 无论是星海还是图案模式，都需要<span style="color:#aaddff">两只手</span>出现在画面中。一只手保持（或做手势），移动另一只手来控制全向自由旋转。</div></div>
+            <div class="gesture-item"><div class="gesture-icon">✊</div><div class="gesture-desc"><strong>单手握拳：</strong> 召唤 <span style="color:#9933ff">神秘星球</span>。</div></div>
+            <div class="gesture-item"><div class="gesture-icon">🤏</div><div class="gesture-desc"><strong>捏合手指：</strong> 在星球模式下，星球会<span style="color:#ff3300">加速自转并拉近</span>；在其他模式下可触发归正。注意：捏合时仅增加球体自转速度，光环保持优雅慢转。</div></div>
+            <div class="gesture-item"><div class="gesture-icon">✌️</div><div class="gesture-desc"><strong>剪刀手：</strong> 变换为 <span style="color:#ff4466">怦然心动</span> 爱心形状。</div></div>
+            <div class="gesture-item"><div class="gesture-icon">☝️</div><div class="gesture-desc"><strong>单指指向：</strong> 展开为 <span style="color:#ff88cc">缤纷星空</span> 文字。</div></div>
+            <div class="gesture-item"><div class="gesture-icon">👌</div><div class="gesture-desc"><strong>三指张开：</strong> 将粒子聚合回 <span style="color:#ffd700">原始画作</span>。</div></div>
+            <div style="text-align: center; margin-top: 30px;">
+                <button onclick="toggleHelp()" style="background:#d4af37; color:#000; padding: 10px 40px;">明白啦</button>
             </div>
         </div>
     </div>
@@ -76,14 +133,22 @@
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
+        window.toggleHelp = function() {
+            const modal = document.getElementById('help-modal');
+            const content = document.getElementById('help-content');
+            if (modal.style.display === 'flex') {
+                modal.style.opacity = '0'; content.style.transform = 'scale(0.9)';
+                setTimeout(() => { modal.style.display = 'none'; }, 300);
+            } else {
+                modal.style.display = 'flex'; modal.offsetHeight; 
+                modal.style.opacity = '1'; content.style.transform = 'scale(1)';
+            }
+        };
+
         const IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg";
         const SPRITE_URL = "https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/spark1.png";
 
-        const CONFIG = {
-            particleCount: 160000, 
-            universeSize: 3000.0,  
-            baseSize: 5.5 
-        };
+        const CONFIG = { particleCount: 160000, universeSize: 3000.0, baseSize: 5.5 };
 
         let scene, camera, renderer, controls, particleSystem, composer;
         let handLandmarker, webcamRunning = false;
@@ -97,45 +162,42 @@
         // 交互变量
         let lastHandPos = null;          
         let rotationVelocity = new THREE.Vector2(0, 0.002); 
-        
         const SPIN_SENSITIVITY = 0.5;    
         const FRICTION = 0.96; 
-
         let isPinching = false;         
         let targetZoomZ = 0.0;           
         let currentZoomZ = 0.0;         
         let extraRotationSpeed = 0.0;   
-
-        // 防抖缓冲
         const GESTURE_BUFFER_SIZE = 7; 
         const gestureBuffer = [];
         let stabilizedGesture = "NONE"; 
         let previousStableGesture = "NONE";
-        
         let isResettingOrientation = false; 
-        
-        // 爆发冷却
         let burstCooldownTimer = 0; 
         const BURST_DURATION_FRAMES = 45; 
-
         let isImageLoaded = false;
 
         const uniforms = {
             uTime: { value: 0 },
-            uState: { value: 0.0 },         
-            uStateText: { value: 0.0 },
-            uStateHeart: { value: 0.0 }, 
-            uStatePlanet: { value: 0.0 }, 
-            // 【新增】专门控制星球球体自转的变量
-            uPlanetRotation: { value: 0.0 },
-            uTexture: { value: null }
+            uState: { value: 0.0 }, uStateText: { value: 0.0 },
+            uStateHeart: { value: 0.0 }, uStatePlanet: { value: 0.0 }, 
+            uPlanetRotation: { value: 0.0 }, uTexture: { value: null }
         };
 
         const statusText = document.getElementById('status-text');
+        
+        // --- 手部骨骼连接定义 ---
+        const HAND_CONNECTIONS = [
+            [0,1],[1,2],[2,3],[3,4], // 拇指
+            [0,5],[5,6],[6,7],[7,8], // 食指
+            [0,9],[9,10],[10,11],[11,12], // 中指
+            [0,13],[13,14],[14,15],[15,16], // 无名指
+            [0,17],[17,18],[18,19],[19,20], // 小指
+            [5,9],[9,13],[13,17] // 手掌横向连接
+        ];
 
         function initThree() {
             const container = document.getElementById('container');
-            
             renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", stencil: false, depth: false });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -151,19 +213,14 @@
             camera.lookAt(0, 0, 0);
 
             controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.autoRotate = false; 
-            controls.maxDistance = 5000;
+            controls.enableDamping = true; controls.autoRotate = false; controls.maxDistance = 5000;
 
             const renderScene = new RenderPass(scene, camera);
             const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-            bloomPass.strength = 0.6;  
-            bloomPass.radius = 0.6;
-            bloomPass.threshold = 0.1; 
+            bloomPass.strength = 0.6; bloomPass.radius = 0.6; bloomPass.threshold = 0.1; 
 
             composer = new EffectComposer(renderer);
-            composer.addPass(renderScene);
-            composer.addPass(bloomPass);
+            composer.addPass(renderScene); composer.addPass(bloomPass);
 
             new THREE.TextureLoader().load(SPRITE_URL, (texture) => {
                 uniforms.uTexture.value = texture;
@@ -174,11 +231,10 @@
             window.addEventListener('resize', onWindowResize);
             document.getElementById('file-input').addEventListener('change', handleFileUpload);
             document.getElementById('btn-reset').addEventListener('click', loadDefaultImage);
-            
             animate();
         }
 
-        // --- 几何体生成函数 ---
+        // --- 几何体生成函数 (略，保持不变) ---
         function generateTextAndRingPoints(count) {
             const posText = new Float32Array(count * 3);
             const canvas = document.createElement('canvas');
@@ -192,9 +248,7 @@
             const validPixels = [];
             for (let y = 0; y < h; y += 4) { 
                 for (let x = 0; x < w; x += 4) {
-                    if (imgData[(y * w + x) * 4] > 128) {
-                        validPixels.push({ x: (x - w/2) * 1.5, y: (h/2 - y) * 1.5, z: 0 });
-                    }
+                    if (imgData[(y * w + x) * 4] > 128) validPixels.push({ x: (x - w/2) * 1.5, y: (h/2 - y) * 1.5, z: 0 });
                 }
             }
             const textParticleCount = Math.floor(count * 0.45);
@@ -219,7 +273,6 @@
             }
             return posText;
         }
-
         function generateHeartPoints(count) {
             const posHeart = new Float32Array(count * 3);
             for (let i = 0; i < count; i++) {
@@ -234,7 +287,6 @@
             }
             return posHeart;
         }
-
         function generatePlanetPoints(count) {
             const posPlanet = new Float32Array(count * 3);
             const planetPartData = new Float32Array(count); 
@@ -249,17 +301,12 @@
                 posPlanet[i*3+2] = r * Math.cos(phi);
                 planetPartData[i] = 0.0; 
             }
-            const ringBands = [
-                { start: 1.50, width: 0.20 }, { start: 1.80, width: 0.40 }, 
-                { start: 2.30, width: 0.20 }, { start: 2.60, width: 0.05 }  
-            ];
+            const ringBands = [{ start: 1.50, width: 0.20 }, { start: 1.80, width: 0.40 }, { start: 2.30, width: 0.20 }, { start: 2.60, width: 0.05 }];
             for(let i=planetCount; i < count; i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const bandIndex = Math.floor(Math.random() * ringBands.length);
                 const band = ringBands[bandIndex];
-                const rBase = planetRadius * band.start;
-                const rWidth = planetRadius * band.width;
-                const r = rBase + Math.random() * rWidth;
+                const rBase = planetRadius * band.start; const rWidth = planetRadius * band.width; const r = rBase + Math.random() * rWidth;
                 posPlanet[i*3] = Math.cos(angle) * r;
                 posPlanet[i*3+1] = (Math.random() - 0.5) * 2.0; 
                 posPlanet[i*3+2] = Math.sin(angle) * r;
@@ -284,9 +331,7 @@
             const sizes = new Float32Array(count); 
             const randoms = new Float32Array(count);            
 
-            const colorPalette = [
-                new THREE.Color(0xaabfff), new THREE.Color(0x8899aa), new THREE.Color(0xffffff), new THREE.Color(0x445577)
-            ];
+            const colorPalette = [new THREE.Color(0xaabfff), new THREE.Color(0x8899aa), new THREE.Color(0xffffff), new THREE.Color(0x445577)];
 
             for (let i = 0; i < count; i++) {
                 const r = CONFIG.universeSize;
@@ -327,148 +372,81 @@
                     uniform float uStateText; 
                     uniform float uStateHeart; 
                     uniform float uStatePlanet; 
-                    uniform float uPlanetRotation; // 【新增】
-                    
-                    attribute vec3 aPosUniverse;
-                    attribute vec3 aPosPainting;
-                    attribute vec3 aPosText; 
-                    attribute vec3 aPosHeart; 
-                    attribute vec3 aPosPlanet; 
-                    attribute float aPlanetPart; 
-                    attribute vec3 color;
-                    attribute float aRandom;
-                    attribute float aSize;
-                    
-                    varying vec3 vColor;
-                    varying float vAlpha;
-
+                    uniform float uPlanetRotation; 
+                    attribute vec3 aPosUniverse; attribute vec3 aPosPainting; attribute vec3 aPosText; 
+                    attribute vec3 aPosHeart; attribute vec3 aPosPlanet; attribute float aPlanetPart; 
+                    attribute vec3 color; attribute float aRandom; attribute float aSize;
+                    varying vec3 vColor; varying float vAlpha;
                     vec3 rotateY(vec3 v, float angle) {
-                        float s = sin(angle);
-                        float c = cos(angle);
+                        float s = sin(angle); float c = cos(angle);
                         return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
                     }
-                    vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d ) {
-                        return a + b*cos( 6.28318*(c*t+d) );
-                    }
-
+                    vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d ) { return a + b*cos( 6.28318*(c*t+d) ); }
                     void main() {
                         vColor = color;
-                        
                         vec3 uPos = aPosUniverse;
                         float galaxySpin = uTime * 0.05 + length(uPos.xz) * 0.0005;
                         uPos = rotateY(uPos, galaxySpin);
-                        float breathing = 1.0 + 0.05 * sin(uTime * 0.5 + aRandom * 3.0);
-                        uPos *= breathing;
+                        uPos *= (1.0 + 0.05 * sin(uTime * 0.5 + aRandom * 3.0));
                         uPos.y += sin(uTime * 0.5 + aRandom * 10.0) * 30.0;
-
-                        vec3 pPos = aPosPainting;
-                        pPos.z *= 0.8; 
-
+                        vec3 pPos = aPosPainting; pPos.z *= 0.8; 
                         vec3 tPos = aPosText;
                         float horizontalDist = length(aPosText.xz);
-                        bool isRing = horizontalDist > 850.0; 
-                        if (isRing) {
+                        if (horizontalDist > 850.0) { 
                             float rotAngle = uTime * 0.08 + aRandom * 0.1; 
                             tPos = rotateY(tPos, rotAngle);
                             tPos.y += sin(uTime * 0.3 + horizontalDist * 0.005) * 8.0; 
-                        } else {
-                            tPos.y += sin(uTime * 0.8 + aRandom * 3.0) * 2.0; 
-                        }
-
+                        } else { tPos.y += sin(uTime * 0.8 + aRandom * 3.0) * 2.0; }
                         vec3 hPos = aPosHeart;
-                        float beat = 1.0 + 0.15 * pow(0.5 + 0.5 * sin(uTime * 7.0), 8.0);
-                        hPos *= beat; 
+                        hPos *= (1.0 + 0.15 * pow(0.5 + 0.5 * sin(uTime * 7.0), 8.0)); 
                         hPos.y += sin(uTime + aRandom) * 5.0; 
-                        
                         vec3 plPos = aPosPlanet;
-                        // 【核心修改】分离光环和球体的旋转逻辑
-                        if (aPlanetPart < 0.5) { 
-                            // 球体：应用由捏合手势产生的快速自转
-                            plPos = rotateY(plPos, uPlanetRotation); 
-                        } else {
-                            // 光环：保持缓慢的背景自转，不受捏合加速影响
-                            plPos = rotateY(plPos, uTime * 0.05); 
-                        }
-
+                        if (aPlanetPart < 0.5) { plPos = rotateY(plPos, uPlanetRotation); } 
+                        else { plPos = rotateY(plPos, uTime * 0.05); }
                         vec3 mix1 = mix(uPos, pPos, uState);
                         vec3 mix2 = mix(mix1, tPos, uStateText);
                         vec3 mix3 = mix(mix2, hPos, uStateHeart);
                         vec3 finalPos = mix(mix3, plPos, uStatePlanet);
-
                         float transitionFactor = sin(uState * 3.14159);
-                        if (transitionFactor > 0.01) {
-                            finalPos = rotateY(finalPos, transitionFactor * 0.5 * (aRandom - 0.5));
-                        }
-
+                        if (transitionFactor > 0.01) { finalPos = rotateY(finalPos, transitionFactor * 0.5 * (aRandom - 0.5)); }
                         vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
                         gl_Position = projectionMatrix * mvPosition;
-
                         float distanceToCamera = -mvPosition.z;
-                        float distanceToCameraClamped = max(distanceToCamera, 0.001);
-                        float distFade = smoothstep(5000.0, 200.0, distanceToCamera);
-                        float distScale = (1000.0 / distanceToCameraClamped); 
-                        
-                        float twinkleSpeed = 2.0 + (1.0 - uState) * 5.0; 
-                        float twinkle = 0.7 + 0.4 * sin(uTime * (twinkleSpeed + aRandom) + aRandom * 100.0);
-                        
+                        float distScale = (1000.0 / max(distanceToCamera, 0.001)); 
+                        float twinkle = 0.7 + 0.4 * sin(uTime * (2.0 + (1.0-uState)*5.0 + aRandom) + aRandom * 100.0);
                         float finalSize = ${CONFIG.baseSize.toFixed(1)} * aSize * twinkle * distScale;
                         finalSize = mix(finalSize * 1.5, finalSize * 1.2, uState); 
                         finalSize = mix(finalSize, finalSize * 0.6, uStateText); 
                         finalSize = mix(finalSize, finalSize * 1.5, uStateHeart); 
                         finalSize = mix(finalSize, finalSize * 0.8, uStatePlanet); 
-
                         gl_PointSize = max(0.0, finalSize); 
-                        
-                        float baseAlpha = 0.6 + aRandom * 0.4;
-                        float alphaState = mix(baseAlpha, 0.8, uState); 
+                        float alphaState = mix(0.6 + aRandom * 0.4, 0.8, uState); 
                         alphaState = mix(alphaState, 0.95, uStateText);
                         alphaState = mix(alphaState, 0.65, uStateHeart);
                         alphaState = mix(alphaState, 0.95, uStatePlanet); 
-                        
-                        vAlpha = alphaState * distFade; 
-                        
-                        vec3 galaxyColor = palette(length(finalPos.xy) * 0.0005 + uTime * 0.1, 
-                                                   vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.0, 0.33, 0.67));
-                        float coreDist = length(finalPos) / 2000.0;
-                        galaxyColor = mix(vec3(1.0, 0.9, 0.8), galaxyColor, smoothstep(0.0, 1.0, coreDist));
-                        
-                        vec3 baseColor = mix(galaxyColor, color, smoothstep(0.0, 0.4, uState));
-                        vColor = baseColor;
-
-                        if (uStateText > 0.1) {
-                            float hue = uTime * 0.2 + length(finalPos.xy) * 0.001;
-                            vec3 rainbow = palette(hue, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.263,0.416,0.557));
-                            vColor = mix(vColor, rainbow, uStateText * 0.9);
-                        }
-                        if (uStateHeart > 0.1) {
-                            vec3 deepRed = vec3(0.8, 0.02, 0.1); 
-                            vColor = mix(vColor, deepRed, uStateHeart * 0.95);
-                        }
+                        vAlpha = alphaState * smoothstep(5000.0, 200.0, distanceToCamera); 
+                        vec3 galaxyColor = palette(length(finalPos.xy) * 0.0005 + uTime * 0.1, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.0, 0.33, 0.67));
+                        galaxyColor = mix(vec3(1.0, 0.9, 0.8), galaxyColor, smoothstep(0.0, 1.0, length(finalPos) / 2000.0));
+                        vColor = mix(galaxyColor, color, smoothstep(0.0, 0.4, uState));
+                        if (uStateText > 0.1) { vColor = mix(vColor, palette(uTime * 0.2 + length(finalPos.xy) * 0.001, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.263,0.416,0.557)), uStateText * 0.9); }
+                        if (uStateHeart > 0.1) { vColor = mix(vColor, vec3(0.8, 0.02, 0.1), uStateHeart * 0.95); }
                         if (uStatePlanet > 0.1) {
                             vec3 finalPlanetColor;
-                            if (aPlanetPart > 0.5) {
-                                finalPlanetColor = vec3(0.92, 0.97, 1.0); 
-                            } else {
+                            if (aPlanetPart > 0.5) { finalPlanetColor = vec3(0.92, 0.97, 1.0); } 
+                            else {
                                 float t = (aPosPlanet.y / 400.0) * 0.5 + 0.5; 
-                                vec3 poleColor = vec3(0.5, 0.8, 1.0); 
-                                vec3 equatorColor = vec3(0.1, 0.1, 0.5); 
-                                float bandGen = cos(t * 3.14159 * 2.0) * 0.5 + 0.5;
-                                finalPlanetColor = mix(equatorColor, poleColor, bandGen);
+                                finalPlanetColor = mix(vec3(0.1, 0.1, 0.5), vec3(0.5, 0.8, 1.0), cos(t * 3.14159 * 2.0) * 0.5 + 0.5);
                             }
                             vColor = mix(vColor, finalPlanetColor, uStatePlanet * 0.95);
                         }
                     }
                 `,
                 fragmentShader: `
-                    varying vec3 vColor;
-                    varying float vAlpha;
-                    uniform sampler2D uTexture;
+                    varying vec3 vColor; varying float vAlpha; uniform sampler2D uTexture;
                     void main() {
                         vec4 tex = texture2D(uTexture, gl_PointCoord);
-                        float brightness = tex.a;
-                        if (brightness < 0.02) discard;
-                        vec3 finalColor = vColor * (1.2 + brightness * 0.5);
-                        gl_FragColor = vec4(finalColor, brightness * vAlpha);
+                        if (tex.a < 0.02) discard;
+                        gl_FragColor = vec4(vColor * (1.2 + tex.a * 0.5), tex.a * vAlpha);
                     }
                 `
             });
@@ -496,14 +474,9 @@
                 for(let x=0; x<w; x++) {
                     if(idx >= total) break;
                     const i = (y * w + x) * 4;
-                    let r = data[i]/255, g = data[i+1]/255, b = data[i+2]/255;
-                    const brightness = 0.299*r + 0.587*g + 0.114*b;
-                    const jitterAmt = 3.0; 
-                    const px = (x - w/2) * 2.5 + (Math.random() - 0.5) * jitterAmt; 
-                    const py = (h/2 - y) * 2.5 + (Math.random() - 0.5) * jitterAmt; 
-                    const pz = brightness * 40.0 + (Math.random() - 0.5) * 5.0; 
-                    attrPainting.setXYZ(idx, px, py, pz);
-                    attrColor.setXYZ(idx, r, g, b);
+                    const brightness = 0.299*(data[i]/255) + 0.587*(data[i+1]/255) + 0.114*(data[i+2]/255);
+                    attrPainting.setXYZ(idx, (x - w/2) * 2.5 + (Math.random() - 0.5) * 3.0, (h/2 - y) * 2.5 + (Math.random() - 0.5) * 3.0, brightness * 40.0 + (Math.random() - 0.5) * 5.0);
+                    attrColor.setXYZ(idx, data[i]/255, data[i+1]/255, data[i+2]/255);
                     attrSize.setX(idx, 0.4 + brightness * 1.8 + Math.random() * 0.3);
                     idx++;
                 }
@@ -513,13 +486,8 @@
 
         function loadDefaultImage() {
             statusText.innerText = "⏳ 正在下载画作..."; 
-            const img = new Image();
-            img.crossOrigin = "Anonymous";
-            img.onload = () => {
-                updatePaintingData(img);
-                statusText.innerText = "✨ 漫天星海 (张手)";
-                isImageLoaded = true;
-            };
+            const img = new Image(); img.crossOrigin = "Anonymous";
+            img.onload = () => { updatePaintingData(img); statusText.innerText = "✨ 漫天星海 (张手)"; isImageLoaded = true; };
             img.onerror = (e) => { console.error(e); statusText.innerText = "⚠️ 图片加载失败！"; statusText.style.color = "#ff4444"; };
             img.src = IMAGE_URL;
         }
@@ -550,44 +518,72 @@
             navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
                 const v = document.getElementById('webcam-preview');
                 v.srcObject = stream;
-                v.addEventListener("loadeddata", () => { webcamRunning = true; v.style.opacity = 1; });
+                v.addEventListener("loadeddata", () => { webcamRunning = true; document.getElementById('output-canvas').style.opacity = 1; });
             }).catch((err) => { console.error(err); alert("摄像头启动失败！"); });
         }
 
         function dist(p1, p2) { return Math.hypot(p1.x - p2.x, p1.y - p2.y); }
-        
-        // 严格伸指判定
         function isFingerExtended(tip, pip, wrist, scale) { 
-            const dTipWrist = dist(tip, wrist);
-            const dPipWrist = dist(pip, wrist);
-            return (dTipWrist > dPipWrist * 1.15) && (dTipWrist > scale * 1.3); 
+            return (dist(tip, wrist) > dist(pip, wrist) * 1.15) && (dist(tip, wrist) > scale * 1.3); 
+        }
+        function getSmoothedGesture(rawGesture) {
+            gestureBuffer.push(rawGesture); if (gestureBuffer.length > GESTURE_BUFFER_SIZE) gestureBuffer.shift();
+            const counts = {}; let maxCount = 0; let bestGesture = rawGesture;
+            for (const g of gestureBuffer) { counts[g] = (counts[g] || 0) + 1; if (counts[g] > maxCount) { maxCount = counts[g]; bestGesture = g; } }
+            return bestGesture;
         }
 
-        function getSmoothedGesture(rawGesture) {
-            gestureBuffer.push(rawGesture);
-            if (gestureBuffer.length > GESTURE_BUFFER_SIZE) {
-                gestureBuffer.shift();
-            }
-            const counts = {};
-            let maxCount = 0;
-            let bestGesture = rawGesture;
-            for (const g of gestureBuffer) {
-                counts[g] = (counts[g] || 0) + 1;
-                if (counts[g] > maxCount) {
-                    maxCount = counts[g];
-                    bestGesture = g;
+        // --- 手部绘制函数 ---
+        function drawHands(ctx, landmarksArray) {
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+            for (const landmarks of landmarksArray) {
+                // 绘制骨骼连接线
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#00ffff'; // 青色线条
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                for (const [start, end] of HAND_CONNECTIONS) {
+                    const p1 = landmarks[start];
+                    const p2 = landmarks[end];
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x * ctx.canvas.width, p1.y * ctx.canvas.height);
+                    ctx.lineTo(p2.x * ctx.canvas.width, p2.y * ctx.canvas.height);
+                    ctx.stroke();
+                }
+
+                // 绘制关节点 (可选)
+                ctx.fillStyle = '#ffffff';
+                for (const p of landmarks) {
+                    ctx.beginPath();
+                    ctx.arc(p.x * ctx.canvas.width, p.y * ctx.canvas.height, 2, 0, 2 * Math.PI);
+                    ctx.fill();
                 }
             }
-            return bestGesture;
         }
 
         function animate() {
             requestAnimationFrame(animate);
             if (webcamRunning && handLandmarker && isImageLoaded) {
                 const v = document.getElementById('webcam-preview');
+                const outCanvas = document.getElementById('output-canvas');
+                const outCtx = outCanvas.getContext('2d');
+
                 if(v.currentTime > 0) {
                     let results = handLandmarker.detectForVideo(v, Date.now());
                     
+                    // --- 绘制黑底亮线手势 ---
+                    if (results.landmarks) {
+                        drawHands(outCtx, results.landmarks);
+                    } else {
+                        // 无手势时保持黑屏
+                        outCtx.fillStyle = '#000';
+                        outCtx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+                    }
+
                     let framePinchFound = false;
                     let detectedGesturesInFrame = [];
                     let pinchingHandIndex = -1;
@@ -596,207 +592,105 @@
                     for (let i = 0; i < results.landmarks.length; i++) {
                         const lm = results.landmarks[i];
                         const wrist = lm[0];
-
                         const pinchDist = dist(lm[4], lm[8]);
-                        if (pinchDist < 0.08) { 
-                            framePinchFound = true;
-                            pinchingHandIndex = i;
-                            continue; 
-                        }
-
+                        if (pinchDist < 0.08) { framePinchFound = true; pinchingHandIndex = i; continue; }
                         const handSize = dist(wrist, lm[9]);
                         const indexExt = isFingerExtended(lm[8], lm[6], wrist, handSize);
                         const middleExt = isFingerExtended(lm[12], lm[10], wrist, handSize);
                         const ringExt = isFingerExtended(lm[16], lm[14], wrist, handSize);
                         const pinkyExt = isFingerExtended(lm[20], lm[18], wrist, handSize);
                         let extendedCount = 0;
-                        if (indexExt) extendedCount++;
-                        if (middleExt) extendedCount++;
-                        if (ringExt) extendedCount++;
-                        if (pinkyExt) extendedCount++;
-
+                        if (indexExt) extendedCount++; if (middleExt) extendedCount++; if (ringExt) extendedCount++; if (pinkyExt) extendedCount++;
                         let currentHandGesture = "NONE";
                         if (extendedCount === 0) currentHandGesture = "FIST";
                         else if (extendedCount === 1 && indexExt) currentHandGesture = "POINT";
                         else if (extendedCount === 2 && indexExt && middleExt) currentHandGesture = "VICTORY";
                         else if (extendedCount === 3 && indexExt && middleExt && ringExt) currentHandGesture = "THREE";
-                        
                         detectedGesturesInFrame.push(currentHandGesture);
-
-                        if (currentHandGesture !== "NONE") {
-                             if (frameGestureHandIndex === -1 || currentHandGesture === "FIST") {
-                                 frameGestureHandIndex = i;
-                             }
-                        }
+                        if (currentHandGesture !== "NONE") { if (frameGestureHandIndex === -1 || currentHandGesture === "FIST") frameGestureHandIndex = i; }
                     }
 
-                    if (results.landmarks.length === 0) {
-                        lastHandPos = null;
-                        framePinchFound = false;
-                    }
+                    if (results.landmarks.length === 0) { lastHandPos = null; framePinchFound = false; }
 
                     let bestFrameGesture = "NONE";
-                    if (detectedGesturesInFrame.includes("FIST")) {
-                        bestFrameGesture = "FIST";
-                    } else if (detectedGesturesInFrame.length > 0) {
-                        bestFrameGesture = detectedGesturesInFrame.find(g => g !== "NONE") || "NONE";
-                    }
+                    if (detectedGesturesInFrame.includes("FIST")) bestFrameGesture = "FIST";
+                    else if (detectedGesturesInFrame.length > 0) bestFrameGesture = detectedGesturesInFrame.find(g => g !== "NONE") || "NONE";
 
                     stabilizedGesture = getSmoothedGesture(bestFrameGesture);
 
                     if (stabilizedGesture !== previousStableGesture) {
-                        if (stabilizedGesture !== "NONE") {
-                            isResettingOrientation = true;
-                            rotationVelocity.set(0, 0); 
-                            extraRotationSpeed = 0;
-                        }
+                        if (stabilizedGesture !== "NONE") { isResettingOrientation = true; rotationVelocity.set(0, 0); extraRotationSpeed = 0; }
                     }
 
-                    // 3. 计算旋转控制
                     let rotationHandIndex = -1; 
                     const isSpecialGestureMode = (stabilizedGesture !== "NONE");
-
                     if (results.landmarks.length > 1) {
-                        if (isSpecialGestureMode) {
-                            if (frameGestureHandIndex !== -1) {
-                                rotationHandIndex = (frameGestureHandIndex === 0) ? 1 : 0;
-                            }
-                        } else {
-                            rotationHandIndex = 1; 
-                        }
+                        if (isSpecialGestureMode) { if (frameGestureHandIndex !== -1) rotationHandIndex = (frameGestureHandIndex === 0) ? 1 : 0; }
+                        else { rotationHandIndex = 1; }
                     }
 
                     if (rotationHandIndex !== -1 && rotationHandIndex < results.landmarks.length) {
                         const lm = results.landmarks[rotationHandIndex];
-                        const currentHandPos = { 
-                            x: (lm[0].x + lm[9].x) * 0.5, 
-                            y: (lm[0].y + lm[9].y) * 0.5 
-                        };
-                        
+                        const currentHandPos = { x: (lm[0].x + lm[9].x) * 0.5, y: (lm[0].y + lm[9].y) * 0.5 };
                         if (lastHandPos) {
                             const distJump = dist(currentHandPos, lastHandPos);
                             if (distJump < 0.1) { 
-                                const dx = currentHandPos.x - lastHandPos.x;
-                                const dy = currentHandPos.y - lastHandPos.y;
-                                
+                                const dx = currentHandPos.x - lastHandPos.x; const dy = currentHandPos.y - lastHandPos.y;
                                 const isScatterMode = (stabilizedGesture === "NONE"); 
                                 let allowManualSpin = true;
-                                
                                 if (isScatterMode && burstCooldownTimer > 0) allowManualSpin = false;
-                                
                                 if (allowManualSpin) {
-                                    if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
-                                        isResettingOrientation = false;
-                                    }
-
+                                    if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) isResettingOrientation = false;
                                     const sensitivity = isSpecialGestureMode ? SPIN_SENSITIVITY * 1.5 : SPIN_SENSITIVITY;
-                                    rotationVelocity.y -= dx * sensitivity; 
-                                    rotationVelocity.x += dy * sensitivity; 
+                                    rotationVelocity.y -= dx * sensitivity; rotationVelocity.x += dy * sensitivity; 
                                 }
                             }
                         }
                         lastHandPos = currentHandPos;
                     }
 
-                    // 4. 触发冷却
-                    if (stabilizedGesture === "NONE" && previousStableGesture !== "NONE") {
-                        burstCooldownTimer = BURST_DURATION_FRAMES; 
-                    }
+                    if (stabilizedGesture === "NONE" && previousStableGesture !== "NONE") burstCooldownTimer = BURST_DURATION_FRAMES; 
                     if (burstCooldownTimer > 0) burstCooldownTimer--;
                     previousStableGesture = stabilizedGesture;
-
-                    // 5. 更新状态机
                     isPinching = framePinchFound; 
                     const dualHandHint = results.landmarks.length > 1 ? "(另一只手旋转)" : "(需双手操作旋转)";
                     const starryHint = results.landmarks.length > 1 ? "(挥动另一只手)" : "(需双手操作)";
 
-                    if (stabilizedGesture === "THREE") {
-                        targetState = 1.0; 
-                        targetTextState = 0.0; targetHeartState = 0.0; targetPlanetState = 0.0;
-                        statusText.innerText = isPinching ? "✨ 视角归正 (捏合)" : "🎨 聚合画作 " + dualHandHint; 
-                        statusText.style.color = "#ffd700";
-                    } 
-                    else if (stabilizedGesture === "FIST") {
-                        targetPlanetState = 1.0; 
-                        targetState = 0.0; targetTextState = 0.0; targetHeartState = 0.0;
-                        if (isPinching) {
-                            statusText.innerText = "🚀 极速跃迁 (视角锁定)"; statusText.style.color = "#ff3300";
-                        } else {
-                            statusText.innerText = "🪐 神秘星球 " + dualHandHint;
-                            statusText.style.color = "#9933ff";
-                        }
-                    } 
-                    else if (stabilizedGesture === "VICTORY") {
-                        targetHeartState = 1.0; 
-                        targetState = 0.0; targetTextState = 0.0; targetPlanetState = 0.0;
-                        statusText.innerText = isPinching ? "✨ 视角归正 (捏合)" : "❤️ 怦然心动 " + dualHandHint; 
-                        statusText.style.color = "#ff4466";
-                    } 
-                    else if (stabilizedGesture === "POINT") {
-                        targetTextState = 1.0; 
-                        targetState = 0.0; targetHeartState = 0.0; targetPlanetState = 0.0;
-                        statusText.innerText = isPinching ? "✨ 视角归正 (捏合)" : "🌈 缤纷星空 " + dualHandHint; 
-                        statusText.style.color = "#ff88cc";
-                    } 
-                    else if (results.landmarks.length > 0) {
-                        targetState = 0.0; targetTextState = 0.0; targetHeartState = 0.0; targetPlanetState = 0.0;
-                        if (burstCooldownTimer > 0) {
-                            statusText.innerText = "✨ 银河爆发 (手势保护中)"; statusText.style.color = "#ffffff";
-                        } else {
-                            statusText.innerText = "✨ 漫天星海 " + starryHint; 
-                            statusText.style.color = "#aaddff";
-                        }
-                    } else {
-                        statusText.innerText = "✨ 等待手势..."; statusText.style.color = "#aaa";
-                    }
+                    if (stabilizedGesture === "THREE") { targetState = 1.0; targetTextState = 0.0; targetHeartState = 0.0; targetPlanetState = 0.0; statusText.innerText = isPinching ? "✨ 视角归正 (捏合)" : "🎨 聚合画作 " + dualHandHint; statusText.style.color = "#ffd700"; } 
+                    else if (stabilizedGesture === "FIST") { targetPlanetState = 1.0; targetState = 0.0; targetTextState = 0.0; targetHeartState = 0.0; if (isPinching) { statusText.innerText = "🚀 极速跃迁 (视角锁定)"; statusText.style.color = "#ff3300"; } else { statusText.innerText = "🪐 神秘星球 " + dualHandHint; statusText.style.color = "#9933ff"; } } 
+                    else if (stabilizedGesture === "VICTORY") { targetHeartState = 1.0; targetState = 0.0; targetTextState = 0.0; targetPlanetState = 0.0; statusText.innerText = isPinching ? "✨ 视角归正 (捏合)" : "❤️ 怦然心动 " + dualHandHint; statusText.style.color = "#ff4466"; } 
+                    else if (stabilizedGesture === "POINT") { targetTextState = 1.0; targetState = 0.0; targetHeartState = 0.0; targetPlanetState = 0.0; statusText.innerText = isPinching ? "✨ 视角归正 (捏合)" : "🌈 缤纷星空 " + dualHandHint; statusText.style.color = "#ff88cc"; } 
+                    else if (results.landmarks.length > 0) { targetState = 0.0; targetTextState = 0.0; targetHeartState = 0.0; targetPlanetState = 0.0; if (burstCooldownTimer > 0) { statusText.innerText = "✨ 银河爆发 (手势保护中)"; statusText.style.color = "#ffffff"; } else { statusText.innerText = "✨ 漫天星海 " + starryHint; statusText.style.color = "#aaddff"; } } 
+                    else { statusText.innerText = "✨ 等待手势..."; statusText.style.color = "#aaa"; }
                 }
             }
 
-            // --- 物理更新 ---
             if (particleSystem) {
                 const isPlanetMode = (stabilizedGesture === "FIST");
                 const isResetAllowed = (stabilizedGesture !== "NONE");
-
                 if (isResettingOrientation) {
-                    const identityQuaternion = new THREE.Quaternion(); 
-                    particleSystem.quaternion.slerp(identityQuaternion, 0.1); 
-                    if (particleSystem.quaternion.angleTo(identityQuaternion) < 0.05) {
-                        isResettingOrientation = false;
-                    }
+                    const identityQuaternion = new THREE.Quaternion(); particleSystem.quaternion.slerp(identityQuaternion, 0.1); 
+                    if (particleSystem.quaternion.angleTo(identityQuaternion) < 0.05) isResettingOrientation = false;
                 }
-
                 if (isPlanetMode && isPinching) {
-                    const targetExtraSpeed = 0.02; 
-                    extraRotationSpeed += (targetExtraSpeed - extraRotationSpeed) * 0.1; 
-                    
-                    // 【核心逻辑】只增加 Shader 变量，不旋转容器
+                    const targetExtraSpeed = 0.02; extraRotationSpeed += (targetExtraSpeed - extraRotationSpeed) * 0.1; 
                     uniforms.uPlanetRotation.value += (0.001 + extraRotationSpeed); 
-                    
-                    const targetZ = 750.0; 
-                    currentZoomZ += (targetZ - currentZoomZ) * 0.05; 
-                    particleSystem.position.z = currentZoomZ;
-
+                    const targetZ = 750.0; currentZoomZ += (targetZ - currentZoomZ) * 0.05; particleSystem.position.z = currentZoomZ;
                     rotationVelocity.set(0, 0); 
                 } 
                 else if (!isPlanetMode && isResetAllowed && isPinching) {
                     particleSystem.rotation.x += (0 - particleSystem.rotation.x) * 0.1;
                     particleSystem.rotation.y += (0 - particleSystem.rotation.y) * 0.1;
                     particleSystem.rotation.z += (0 - particleSystem.rotation.z) * 0.1;
-                    currentZoomZ += (0 - currentZoomZ) * 0.1; 
-                    particleSystem.position.z = currentZoomZ;
-                    rotationVelocity.set(0, 0); 
+                    currentZoomZ += (0 - currentZoomZ) * 0.1; particleSystem.position.z = currentZoomZ; rotationVelocity.set(0, 0); 
                 }
                 else {
                     particleSystem.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), rotationVelocity.x);
                     particleSystem.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), rotationVelocity.y);
-
-                    // 默认状态下微调也只影响球体Shader，保持容器稳定
                     extraRotationSpeed += (0.0 - extraRotationSpeed) * 0.1;
                     uniforms.uPlanetRotation.value += (0.001 + extraRotationSpeed);
-
                     rotationVelocity.multiplyScalar(FRICTION); 
-                    currentZoomZ += (0.0 - currentZoomZ) * 0.05; 
-                    particleSystem.position.z = currentZoomZ;
+                    currentZoomZ += (0.0 - currentZoomZ) * 0.05; particleSystem.position.z = currentZoomZ;
                 }
             }
 
@@ -805,14 +699,11 @@
             currentHeartState += (targetHeartState - currentHeartState) * 0.03;
             currentPlanetState += (targetPlanetState - currentPlanetState) * 0.03;
 
-            uniforms.uState.value = currentState; 
-            uniforms.uStateText.value = currentTextState;
-            uniforms.uStateHeart.value = currentHeartState;
-            uniforms.uStatePlanet.value = currentPlanetState;
+            uniforms.uState.value = currentState; uniforms.uStateText.value = currentTextState;
+            uniforms.uStateHeart.value = currentHeartState; uniforms.uStatePlanet.value = currentPlanetState;
             uniforms.uTime.value += 0.01;
             
-            controls.update(); 
-            composer.render();
+            controls.update(); composer.render();
         }
 
         initThree(); initVision();
